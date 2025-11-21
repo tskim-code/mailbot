@@ -1,0 +1,2 @@
+# mailbot
+mailbot
