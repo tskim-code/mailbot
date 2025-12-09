@@ -1,19 +1,17 @@
-import functions_framework
+import os
 import requests
 import feedparser
-import os
 from email.mime.text import MIMEText
 import smtplib
-from flask import jsonify
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 EMAIL_USER = os.environ.get("EMAIL_USER")
 EMAIL_PW = os.environ.get("EMAIL_PW")
 
 
-# --------------------------
-#  RSS 뉴스 수집
-# --------------------------
 def fetch_rss():
     feeds = [
         "https://www.zdnet.co.kr/news/news_xml.asp?ct=0000",
@@ -24,23 +22,17 @@ def fetch_rss():
     try:
         for f in feeds:
             parsed = feedparser.parse(f)
-
             if not hasattr(parsed, "entries"):
                 print("RSS 구조 오류:", f)
                 continue
-
             for e in parsed.entries[:5]:
                 items.append({"title": e.title, "link": e.link})
-
     except Exception as e:
         print("RSS Fetch Error:", e)
 
     return items
 
 
-# --------------------------
-#  GPT 요약
-# --------------------------
 def summarize_with_gpt(text):
     url = "https://api.openai.com/v1/chat/completions"
 
@@ -66,8 +58,6 @@ def summarize_with_gpt(text):
         res.raise_for_status()
 
         j = res.json()
-
-        # GPT 응답 검증
         if "choices" not in j:
             print("GPT 응답 구조 오류:", j)
             return "GPT 응답 오류로 요약 생성에 실패했습니다."
@@ -79,9 +69,6 @@ def summarize_with_gpt(text):
         return "GPT 호출 실패로 오늘 뉴스 요약을 생성하지 못했습니다."
 
 
-# --------------------------
-#  이메일 전송
-# --------------------------
 def send_email(summary):
     msg = MIMEText(summary.replace("\n", "<br>"), "html")
     msg["Subject"] = "Daily IT Trend"
@@ -99,8 +86,20 @@ def send_email(summary):
 
 
 # --------------------------
-#  Cloud Run 엔트리포인트
+# Cloud Run 엔드포인트
 # --------------------------
-@functions_framework.http
-def hello_http(request):
-    #
+@app.route("/", methods=["GET"])
+def hello_http():
+    rss_items = fetch_rss()
+
+    text = "\n".join([f"{i['title']} ({i['link']})" for i in rss_items])
+
+    summary = summarize_with_gpt(text)
+    send_email(summary)
+
+    return jsonify({"status": "ok", "summary": summary})
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
